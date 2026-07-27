@@ -73,7 +73,7 @@ def translate_to_persian(text):
     if not text:
         return ""
     try:
-        clean_text = text[:1000]
+        clean_text = text[:3500]  # پشتیبانی از ترجمه متون بلندتر تا ۳۵۰۰ کاراکتر
         translated = GoogleTranslator(source='auto', target='fa').translate(clean_text)
         return translated
     except Exception as e:
@@ -111,8 +111,8 @@ def fetch_feed_custom(url):
         print(f"خطا در دریافت فید از {url}: {e}")
         return feedparser.parse(url)
 
-def process_feeds(item_count=10):
-    """بررسی اخبار جدید"""
+def process_feeds(item_count=3):
+    """بررسی اخبار جدید (item_count مشخص می‌کند چه تعداد چک شود)"""
     print(f"در حال بررسی منابع خبری برای {item_count} مقاله اخیر...")
 
     for source_name, feed_url in NEWS_FEEDS.items():
@@ -132,9 +132,12 @@ def process_feeds(item_count=10):
                 if not link or not title_en or link in SEEN_LINKS:
                     continue
 
-                # استخراج خلاصه
+                # استخراج خلاصه یا متن کامل
                 summary_raw = entry.get("summary", "") or entry.get("description", "")
-                summary_en = clean_html(summary_raw)[:300]
+                
+                # برای کارنگی متن طولانی‌تر استخراج می‌شود
+                limit_len = 3000 if source_name == "مؤسسه کارنگی" else 300
+                summary_en = clean_html(summary_raw)[:limit_len]
 
                 print(f"📰 خبر جدید پیدا شد از [{source_name}]: {title_en[:30]}...")
 
@@ -142,11 +145,15 @@ def process_feeds(item_count=10):
                 title_fa = translate_to_persian(title_en)
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
-                # ساخت قالب پیام (نام منبع در انتهای پیام قرار گرفت)
+                # ساخت قالب پیام
                 caption = f"📌 <b>{title_fa}</b>\n\n"
                 
                 if summary_fa:
-                    caption += f"📝 {summary_fa}\n\n"
+                    if source_name == "مؤسسه کارنگی":
+                        # ایجاد منوی کشویی بازشونده برای کارنگی
+                        caption += f"<details><summary><b>📝 مشاهده متن کامل مقاله</b></summary>\n\n{summary_fa}\n</details>\n\n"
+                    else:
+                        caption += f"📝 {summary_fa}\n\n"
                 
                 caption += f"🏛 <b>منبع:</b> {source_name}\n"
                 caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
@@ -166,8 +173,8 @@ def process_feeds(item_count=10):
 
 def news_loop():
     """حلقه زمان‌بندی بررسی اخبار"""
-    # در اولین اجرا ۱۰ خبر اخیر منبع جدید (و بقیه) بررسی و ارسال می‌شود
-    process_feeds(item_count=10)
+    # در اجرای اول: فقط ۳ خبر اخیر از هر منبع ارسال می‌شود
+    process_feeds(item_count=3)
 
     # در دوره‌های بعدی هر ۱۵ دقیقه ۲ خبر اخیر چک می‌شود
     while True:
