@@ -73,7 +73,7 @@ def translate_to_persian(text):
     if not text:
         return ""
     try:
-        clean_text = text[:3500]  # پشتیبانی از ترجمه متون بلندتر تا ۳۵۰۰ کاراکتر
+        clean_text = text[:3500]  # ترجمه تا ۳۵۰۰ کاراکتر
         translated = GoogleTranslator(source='auto', target='fa').translate(clean_text)
         return translated
     except Exception as e:
@@ -96,6 +96,8 @@ def send_telegram_message(text):
     
     try:
         res = requests.post(url, data=payload, timeout=15)
+        if res.status_code != 200:
+            print(f"خطای ارسال تلگرام: {res.text}")
         return res.status_code == 200
     except Exception as e:
         print(f"خطا در ارسال به تلگرام: {e}")
@@ -112,7 +114,7 @@ def fetch_feed_custom(url):
         return feedparser.parse(url)
 
 def process_feeds(item_count=3):
-    """بررسی اخبار جدید (item_count مشخص می‌کند چه تعداد چک شود)"""
+    """بررسی اخبار جدید"""
     print(f"در حال بررسی منابع خبری برای {item_count} مقاله اخیر...")
 
     for source_name, feed_url in NEWS_FEEDS.items():
@@ -128,14 +130,11 @@ def process_feeds(item_count=3):
                 link = extract_link(entry)
                 title_en = entry.get("title", "").strip()
                 
-                # اگر لینک پیدا نشد یا خبر تکراری بود، رد شو
                 if not link or not title_en or link in SEEN_LINKS:
                     continue
 
-                # استخراج خلاصه یا متن کامل
+                # استخراج خلاصه
                 summary_raw = entry.get("summary", "") or entry.get("description", "")
-                
-                # برای کارنگی متن طولانی‌تر استخراج می‌شود
                 limit_len = 3000 if source_name == "مؤسسه کارنگی" else 300
                 summary_en = clean_html(summary_raw)[:limit_len]
 
@@ -150,8 +149,8 @@ def process_feeds(item_count=3):
                 
                 if summary_fa:
                     if source_name == "مؤسسه کارنگی":
-                        # ایجاد منوی کشویی بازشونده برای کارنگی
-                        caption += f"<details><summary><b>📝 مشاهده متن کامل مقاله</b></summary>\n\n{summary_fa}\n</details>\n\n"
+                        # استفاده از فرمت اسپویلر استاندارد تلگرام (کلیک برای نمایش)
+                        caption += f"📝 <b>متن کامل مقاله (روی متن بزنید تا باز شود):</b>\n<tg-spoiler>{summary_fa}</tg-spoiler>\n\n"
                     else:
                         caption += f"📝 {summary_fa}\n\n"
                 
@@ -173,10 +172,10 @@ def process_feeds(item_count=3):
 
 def news_loop():
     """حلقه زمان‌بندی بررسی اخبار"""
-    # در اجرای اول: فقط ۳ خبر اخیر از هر منبع ارسال می‌شود
+    # در اولین اجرا: ۳ خبر اخیر از هر منبع فرستاده می‌شود
     process_feeds(item_count=3)
 
-    # در دوره‌های بعدی هر ۱۵ دقیقه ۲ خبر اخیر چک می‌شود
+    # در دوره‌های بعدی: هر ۱۵ دقیقه ۲ خبر اخیر بررسی می‌شود
     while True:
         print("انتظار برای بررسی بعدی (۱۵ دقیقه)...")
         time.sleep(900)
