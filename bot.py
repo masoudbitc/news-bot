@@ -57,39 +57,58 @@ def extract_link(entry):
                 return href
     return None
 
-def fetch_carnegie_full_text(url):
-    """استخراج متن کامل مقاله از صفحه اصلی سایت کارنگی"""
+def get_real_url(google_url):
+    """استخراج لینک واقعی سایت اصلی از لینک گوگل‌نیوز"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(url, headers=headers, timeout=12)
+        res = requests.get(google_url, headers=headers, allow_redirects=True, timeout=10)
+        return res.url
+    except Exception:
+        return google_url
+
+def fetch_carnegie_full_text(google_url):
+    """استخراج متن کامل مقاله مستقیم از خود سایت کارنگی"""
+    try:
+        real_url = get_real_url(google_url)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        res = requests.get(real_url, headers=headers, timeout=12)
+        
         if res.status_code != 200:
-            return None
+            return None, real_url
         
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # استخراج پاراگراف‌های اصلی بدنه مقاله
+        # پیدا کردن پاراگراف‌های مقاله اصلی
         paragraphs = soup.find_all('p')
-        full_text = []
+        full_text_blocks = []
+        
         for p in paragraphs:
             text = p.get_text().strip()
-            # فیلتر کردن پاراگراف‌های کوتاه یا غیرمرتبط مثل منوها و فوتر
-            if len(text) > 60:
-                full_text.append(text)
+            # فیلتر کردن منوها، کپی‌رایت‌ها و متون کوتاه
+            if len(text) > 50 and not text.startswith("©") and "Carnegie Endowment" not in text:
+                full_text_blocks.append(text)
         
-        # ترکیب پاراگراف‌ها تا سقف ۳۵00 کاراکتر (محدودیت پیام تلگرام)
-        combined_text = "\n\n".join(full_text)
-        return combined_text[:3500] if combined_text else None
+        if full_text_blocks:
+            return "\n\n".join(full_text_blocks), real_url
+        return None, real_url
+
     except Exception as e:
-        print(f"خطا در دریافت متن کامل کارنگی: {e}")
-        return None
+        print(f"خطا در دریافت متن کارنگی: {e}")
+        return None, google_url
 
 def translate_to_persian(text):
-    """ترجمه متن به فارسی با پشتیبانی از متون طولانی"""
+    """ترجمه متون به فارسی"""
     if not text:
         return ""
     try:
-        clean_text = text[:3500]
-        return GoogleTranslator(source='auto', target='fa').translate(clean_text)
+        # ترجمه تکه‌تکه برای متون بسیار بلند
+        chunks = [text[i:i+3000] for i in range(0, len(text), 3000)]
+        translated_chunks = []
+        for chunk in chunks:
+            translated = GoogleTranslator(source='auto', target='fa').translate(chunk)
+            translated_chunks.append(translated)
+            time.sleep(0.5)
+        return "\n".join(translated_chunks)
     except Exception as e:
         print(f"خطا در ترجمه: {e}")
         return text
@@ -125,7 +144,7 @@ def fetch_feed_custom(url):
         return feedparser.parse(url)
 
 def process_feeds(item_count=3):
-    print(f"در حال بررسی منابع خبری (۳ خبر اخیر)...")
+    print(f"در حال بررسی منابع خبری...")
 
     for source_name, feed_url in NEWS_FEEDS.items():
         try:
@@ -142,35 +161,56 @@ def process_feeds(item_count=3):
                     continue
 
                 summary_en = ""
+                final_link = link
 
-                # اگر منبع کارنگی باشد، متن کامل مقاله را از وب‌سایتش استخراج می‌کنیم
+                # 1. برای کارنگی: استخراج لینک اصلی و متن کامل مقاله
                 if source_name == "مؤسسه کارنگی":
-                    print(f"📥 در حال استخراج متن کامل مقاله کارنگی: {title_en[:30]}...")
-                    summary_en = fetch_carnegie_full_text(link)
-                
-                # اگر استخراج موفق نبود یا منبع دیگری بود، از همان چکیده RSS استفاده کن
+                    print(f"📥 در حال دریافت مقاله کامل کارنگی: {title_en[:30]}...")
+                    full_text, real_link = fetch_carnegie_full_text(link)
+                    if full_text:
+                        summary_en = full_text
+                        final_link = real_link
+
+                # 2. برای سایر منابع (کویینسی و...): فقط خلاصه کوتاه (حداکثر ۳۵۰ کاراکتر)
                 if not summary_en:
                     summary_raw = entry.get("summary", "") or entry.get("description", "")
-                    summary_en = clean_html(summary_raw)[:1000]
+                    summary_en = clean_html(summary_raw)[:350]
 
-                # ترجمه
+                # ترجمه عنوان و متن
                 title_fa = translate_to_persian(title_en)
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
-                # ساخت قالب پیام
-                caption = f"📌 <b>{title_fa}</b>\n\n"
-                if summary_fa:
-                    caption += f"📝 {summary_fa}\n\n"
-                
-                caption += f"🏛 <b>منبع:</b> {source_name}\n"
-                caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
+                # ۳. ساخت و ارسال پیام
+                if source_name == "مؤسسه کارنگی" and len(summary_fa) > 3500:
+                    # اگر مقاله کارنگی خیلی بلند بود، آن را در چند پیام متوالی می‌فرستد
+                    header = f"📌 <b>{title_fa}</b>\n🏛 <b>منبع:</b> {source_name}\n\n"
+                    chunks = [summary_fa[i:i+3500] for i in range(0, len(summary_fa), 3500)]
+                    
+                    for idx, chunk in enumerate(chunks):
+                        part_msg = header if idx == 0 else f"📄 <b>ادامه مقاله کارنگی (بخش {idx+1}):</b>\n\n"
+                        part_msg += f"📝 {chunk}"
+                        if idx == len(chunks) - 1:
+                            part_msg += f"\n\n🔗 <a href='{final_link}'>مطالعه مقاله کامل در سایت اصلی</a>"
+                        
+                        send_telegram_message(part_msg)
+                        time.sleep(1.5)
+                    
+                    print(f"✅ مقاله کامل کارنگی (در {len(chunks)} بخش) ارسال شد: {title_en[:30]}")
+                else:
+                    caption = f"📌 <b>{title_fa}</b>\n\n"
+                    if summary_fa:
+                        caption += f"📝 {summary_fa}\n\n"
+                    
+                    caption += f"🏛 <b>منبع:</b> {source_name}\n"
+                    caption += f"🔗 <a href='{final_link}'>مطالعه مقاله کامل</a>"
 
-                if send_telegram_message(caption):
-                    print(f"✅ خبر ارسال شد: {title_en[:30]}")
-                    SEEN_LINKS.add(link)
-                    if len(SEEN_LINKS) > MAX_MEMORY:
-                        SEEN_LINKS.pop()
-                    time.sleep(2)
+                    if send_telegram_message(caption):
+                        print(f"✅ خبر ارسال شد: {title_en[:30]}")
+
+                SEEN_LINKS.add(link)
+                if len(SEEN_LINKS) > MAX_MEMORY:
+                    SEEN_LINKS.pop()
+                time.sleep(2)
 
         except Exception as e:
             print(f"خطا در پردازش {source_name}: {e}")
