@@ -26,7 +26,7 @@ CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 # ---- 3. منابع خبری (RSS Feeds) ----
 NEWS_FEEDS = {
     "پژوهشکده کویینسی": "https://responsiblestatecraft.org/feed/",
-    "مؤسسه کارنگی": "https://carnegieendowment.org/rss/solrfeed",  # فید رسمی و مستقیم کارنگی
+    "مؤسسه کارنگی": "https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en",
     "هاروارد بیزینس ریویو": "https://feeds.feedburner.com/harvardbusiness",
     "اکونومیست (بین‌الملل)": "https://www.economist.com/international/rss.xml",
     "اکونومیست (تجارت)": "https://www.economist.com/business/rss.xml",
@@ -45,7 +45,7 @@ def clean_html(raw_html):
     return re.sub('<[^<]+?>', '', raw_html).strip()
 
 def extract_link(entry):
-    """استخراج لینک اصلی خبر"""
+    """استخراج لینک خبر"""
     link = entry.get("link", "")
     if link and isinstance(link, str) and link.startswith("http"):
         return link
@@ -57,49 +57,73 @@ def extract_link(entry):
                 return href
     return None
 
-def fetch_carnegie_full_text(url):
-    """استخراج مستقیم تمامی پاراگراف‌های بدنه مقاله کارنگی"""
+def resolve_google_redirect(google_url):
+    """باز کردن لینک گوگل‌نیوز و گرفتن آدرس واقعی سایت کارنگی"""
     try:
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        })
+        res = session.get(google_url, allow_redirects=True, timeout=10)
+        
+        # اگر در گوگل ماند، تلاش برای پیدا کردن لینک اصلی داخل HTML
+        if "google.com" in res.url:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                if "carnegieendowment.org" in a['href']:
+                    return a['href']
+        return res.url
+    except Exception as e:
+        print(f"خطا در رد کردن گوگل‌نیوز: {e}")
+        return google_url
+
+def fetch_carnegie_full_text(google_url):
+    """استخراج متن کامل مقاله مستقیم از سایت کارنگی"""
+    try:
+        real_url = resolve_google_redirect(google_url)
+        print(f"🔗 آدرس واقعی استخراج‌شده کارنگی: {real_url}")
+        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5'
         }
-        res = requests.get(url, headers=headers, timeout=15)
         
+        res = requests.get(real_url, headers=headers, timeout=12)
         if res.status_code != 200:
-            print(f"خطای دریافت صفحه کارنگی: status code {res.status_code}")
-            return None
-        
+            print(f"عدم دسترسی به سایت کارنگی (کد {res.status_code})")
+            return None, real_url
+
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # حذف اسکریپت‌ها و استایل‌ها
-        for element in soup(["script", "style", "nav", "header", "footer", "aside"]):
-            element.extract()
+        # پاک‌سازی بخش‌های ناخواسته
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
+            tag.extract()
 
-        # تلاش برای استخراج از بخش اصلی مقاله یا تمام پاراگراف‌ها
-        article_body = soup.find('article') or soup.find('main') or soup
-        paragraphs = article_body.find_all('p')
+        # استخراج تمامی پاراگراف‌ها
+        paragraphs = soup.find_all('p')
+        full_text = []
         
-        full_text_blocks = []
         for p in paragraphs:
             text = p.get_text().strip()
-            # فیلتر کردن متون متفرقه و کوتاه
-            if len(text) > 40 and not text.startswith("©"):
-                full_text_blocks.append(text)
-        
-        if full_text_blocks:
-            return "\n\n".join(full_text_blocks)
-        return None
+            # فیلتر متون کوتاه و متن‌های مربوط به فوتر
+            if len(text) > 50 and not text.startswith("©") and "Carnegie Endowment" not in text:
+                full_text.append(text)
+
+        if full_text:
+            return "\n\n".join(full_text), real_url
+        return None, real_url
 
     except Exception as e:
         print(f"خطا در استخراج مقاله کارنگی: {e}")
-        return None
+        return None, google_url
 
 def translate_to_persian(text):
-    """ترجمه متون به فارسی (تکه‌تکه برای متون بلند)"""
+    """ترجمه متون به فارسی"""
     if not text:
         return ""
     try:
-        chunks = [text[i:i+2800] for i in range(0, len(text), 2800)]
+        chunks = [text[i:i+2500] for i in range(0, len(text), 2500)]
         translated_chunks = []
         for chunk in chunks:
             translated = GoogleTranslator(source='auto', target='fa').translate(chunk)
@@ -111,7 +135,7 @@ def translate_to_persian(text):
         return text
 
 def send_telegram_message(text):
-    """ارسال پیام به کانال تلگرام"""
+    """ارسال پیام به تلگرام"""
     if not TOKEN:
         print("خطا: BOT_TOKEN تنظیم نشده است!")
         return False
@@ -137,7 +161,7 @@ def fetch_feed_custom(url):
         response = requests.get(url, headers=headers, timeout=15)
         return feedparser.parse(response.content)
     except Exception as e:
-        print(f"خطا در دریافت فید {url}: {e}")
+        print(f"خطا در دریافت فید: {e}")
         return feedparser.parse(url)
 
 def process_feeds(item_count=3):
@@ -148,6 +172,7 @@ def process_feeds(item_count=3):
             feed = fetch_feed_custom(feed_url)
 
             if not feed.entries:
+                print(f"⚠️ هیچ خبری در فید {source_name} یافت نشد.")
                 continue
 
             for entry in reversed(feed.entries[:item_count]):
@@ -158,13 +183,17 @@ def process_feeds(item_count=3):
                     continue
 
                 summary_en = ""
+                final_link = link
 
-                # 1. استخراج اختصاصی متن کامل برای کارنگی
+                # 1. استخراج اختصاصی مقاله کارنگی
                 if source_name == "مؤسسه کارنگی":
-                    print(f"📥 در حال دریافت مقاله کامل کارنگی: {title_en[:30]}...")
-                    summary_en = fetch_carnegie_full_text(link)
-                
-                # 2. خلاصه کوتاه برای سایر منابع (کویینسی و...)
+                    print(f"📥 در حال تلاش برای استخراج متن کامل کارنگی: {title_en[:30]}...")
+                    full_text, real_link = fetch_carnegie_full_text(link)
+                    if full_text:
+                        summary_en = full_text
+                        final_link = real_link
+
+                # 2. پشتیبان: اگر استخراج کامل شکست خورد یا منبع دیگری بود
                 if not summary_en:
                     summary_raw = entry.get("summary", "") or entry.get("description", "")
                     summary_en = clean_html(summary_raw)[:350]
@@ -174,15 +203,15 @@ def process_feeds(item_count=3):
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
                 # 3. ارسال به تلگرام
-                if source_name == "مؤسسه کارنگی" and len(summary_fa) > 3500:
+                if source_name == "مؤسسه کارنگی" and len(summary_fa) > 3000:
                     header = f"📌 <b>{title_fa}</b>\n🏛 <b>منبع:</b> {source_name}\n\n"
-                    chunks = [summary_fa[i:i+3500] for i in range(0, len(summary_fa), 3500)]
+                    chunks = [summary_fa[i:i+3200] for i in range(0, len(summary_fa), 3200)]
                     
                     for idx, chunk in enumerate(chunks):
                         part_msg = header if idx == 0 else f"📄 <b>ادامه مقاله کارنگی (بخش {idx+1}):</b>\n\n"
                         part_msg += f"📝 {chunk}"
                         if idx == len(chunks) - 1:
-                            part_msg += f"\n\n🔗 <a href='{link}'>مطالعه مقاله کامل در سایت اصلی</a>"
+                            part_msg += f"\n\n🔗 <a href='{final_link}'>مطالعه مقاله کامل در سایت کارنگی</a>"
                         
                         send_telegram_message(part_msg)
                         time.sleep(1.5)
@@ -193,7 +222,7 @@ def process_feeds(item_count=3):
                         caption += f"📝 {summary_fa}\n\n"
                     
                     caption += f"🏛 <b>منبع:</b> {source_name}\n"
-                    caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
+                    caption += f"🔗 <a href='{final_link}'>مطالعه مقاله کامل</a>"
 
                     if send_telegram_message(caption):
                         print(f"✅ خبر ارسال شد: {title_en[:30]}")
