@@ -22,7 +22,7 @@ def run_flask():
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 
-# ---- 3. منابع خبری به‌روزرسانی‌شده (RSS Feeds) ----
+# ---- 3. منابع خبری (RSS Feeds) ----
 NEWS_FEEDS = {
     "Quincy Institute": "https://responsiblestatecraft.org/feed/",
     "Carnegie Endowment": "https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en",
@@ -35,7 +35,7 @@ NEWS_FEEDS = {
 
 # حافظه موقت برای ذخیره ۲۰۰ خبر آخر جهت جلوگیری از تکرار
 SEEN_LINKS = set()
-MAX_MEMORY = 200
+MAX_MEMORY = 300
 
 def clean_html(raw_html):
     """پاک‌سازی تگ‌های HTML از متن خلاصه"""
@@ -110,9 +110,9 @@ def fetch_feed_custom(url):
         print(f"خطا در دریافت فید از {url}: {e}")
         return feedparser.parse(url)
 
-def process_feeds():
-    """بررسی اخبار جدید"""
-    print("در حال بررسی منابع خبری برای مقالات جدید...")
+def process_feeds(item_count=10):
+    """بررسی اخبار جدید (item_count مشخص می‌کند چه تعداد از آخرین اخبار چک شوند)"""
+    print(f"در حال بررسی منابع خبری برای {item_count} مقاله اخیر...")
 
     for source_name, feed_url in NEWS_FEEDS.items():
         try:
@@ -122,8 +122,8 @@ def process_feeds():
                 print(f"⚠️ منبع {source_name} ورودی جدیدی نداشت یا فید آن خالی است.")
                 continue
 
-            # بررسی ۲ خبر آخر از هر منبع
-            for entry in reversed(feed.entries[:2]):
+            # بررسی ۱۰ خبر آخر از هر منبع (از قدیمی به جدید جهت حفظ ترتیب)
+            for entry in reversed(feed.entries[:item_count]):
                 link = extract_link(entry)
                 title_en = entry.get("title", "").strip()
                 
@@ -141,15 +141,13 @@ def process_feeds():
                 title_fa = translate_to_persian(title_en)
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
-                # ساخت قالب پیام
-                caption = f"🏛 <b>{source_name}</b>\n\n"
-                caption += f"📌 <b>{title_en}</b>\n"
-                caption += f"🔹 <b>{title_fa}</b>\n\n"
+                # ساخت قالب پیام (فقط فارسی + لینک)
+                caption = f"📌 <b>{title_fa}</b>\n\n"
                 
                 if summary_fa:
-                    caption += f"📝 <i>{summary_fa}</i>\n\n"
+                    caption += f"📝 {summary_fa}\n\n"
                 
-                caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل در منبع اصلی</a>"
+                caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
 
                 # ارسال پیام
                 if send_telegram_message(caption):
@@ -159,21 +157,25 @@ def process_feeds():
                     if len(SEEN_LINKS) > MAX_MEMORY:
                         SEEN_LINKS.pop()
 
-                    time.sleep(3)
+                    # وقفه کوتاه برای رعایت قوانین اسپم تلگرام
+                    time.sleep(2)
 
         except Exception as e:
             print(f"خطا در پردازش منبع {source_name}: {e}")
 
 def news_loop():
-    """حلقه زمان‌بندی بررسی اخبار (هر ۱۵ دقیقه)"""
+    """حلقه زمان‌بندی بررسی اخبار"""
+    # در اجرای اول: ۱۰ خبر اخیر هر منبع ارسال می‌شود
+    process_feeds(item_count=10)
+
+    # در دوره‌های بعدی (هر ۱۵ دقیقه): فقط ۲ خبر اخیر بررسی می‌شود
     while True:
-        try:
-            process_feeds()
-        except Exception as e:
-            print(f"خطای غیرمنتظره در حلقه اخبار: {e}")
-        
         print("انتظار برای بررسی بعدی (۱۵ دقیقه)...")
         time.sleep(900)
+        try:
+            process_feeds(item_count=2)
+        except Exception as e:
+            print(f"خطای غیرمنتظره در حلقه اخبار: {e}")
 
 # ---- 4. اجرا ----
 if __name__ == "__main__":
