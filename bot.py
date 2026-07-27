@@ -22,10 +22,10 @@ def run_flask():
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 
-# ---- 3. منابع خبری جدید (RSS Feeds) ----
+# ---- 3. منابع خبری به‌روزرسانی‌شده (RSS Feeds) ----
 NEWS_FEEDS = {
     "Quincy Institute": "https://responsiblestatecraft.org/feed/",
-    "Carnegie Endowment": "https://carnegieendowment.org/rss/solr/?fa=all",
+    "Carnegie Endowment": "https://carnegieendowment.org/rss/page/analysis",
     "Harvard Business Review": "https://feeds.feedburner.com/harvardbusiness",
     "The Economist (International)": "https://www.economist.com/international/rss.xml",
     "The Economist (Business)": "https://www.economist.com/business/rss.xml",
@@ -43,6 +43,32 @@ def clean_html(raw_html):
         return ""
     clean_text = re.sub('<[^<]+?>', '', raw_html)
     return clean_text.strip()
+
+def extract_link(entry):
+    """استخراج هوشمند لینک از فیلدهای مختلف RSS"""
+    # 1. برحصور مستقیم link
+    link = entry.get("link", "")
+    if link and isinstance(link, str) and link.startswith("http"):
+        return link
+
+    # 2. بررسی ساختار لیستی link
+    links = entry.get("links", [])
+    if links and isinstance(links, list):
+        for l in links:
+            href = l.get("href", "")
+            if href and href.startswith("http"):
+                return href
+
+    # 3. بررسی id یا guid (چون در اکونومیست گاهی لینک در id قرار دارد)
+    entry_id = entry.get("id", "")
+    if entry_id and entry_id.startswith("http"):
+        return entry_id
+
+    guid = entry.get("guid", "")
+    if guid and guid.startswith("http"):
+        return guid
+
+    return None
 
 def translate_to_persian(text):
     """ترجمه متن به فارسی با پشتیبانی از گوگل"""
@@ -101,9 +127,10 @@ def process_feeds():
 
             # بررسی ۲ خبر آخر از هر منبع
             for entry in reversed(feed.entries[:2]):
-                link = entry.get("link", "")
+                link = extract_link(entry)
                 title_en = entry.get("title", "").strip()
                 
+                # اگر لینک پیدا نشد یا خبر تکراری بود، رد شو
                 if not link or not title_en or link in SEEN_LINKS:
                     continue
 
