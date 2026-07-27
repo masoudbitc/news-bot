@@ -25,7 +25,7 @@ CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 # ---- 3. منابع خبری به‌روزرسانی‌شده (RSS Feeds) ----
 NEWS_FEEDS = {
     "Quincy Institute": "https://responsiblestatecraft.org/feed/",
-    "Carnegie Endowment": "https://carnegieendowment.org/rss/page/analysis",
+    "Carnegie Endowment": "https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en",
     "Harvard Business Review": "https://feeds.feedburner.com/harvardbusiness",
     "The Economist (International)": "https://www.economist.com/international/rss.xml",
     "The Economist (Business)": "https://www.economist.com/business/rss.xml",
@@ -46,12 +46,10 @@ def clean_html(raw_html):
 
 def extract_link(entry):
     """استخراج هوشمند لینک از فیلدهای مختلف RSS"""
-    # 1. برحصور مستقیم link
     link = entry.get("link", "")
     if link and isinstance(link, str) and link.startswith("http"):
         return link
 
-    # 2. بررسی ساختار لیستی link
     links = entry.get("links", [])
     if links and isinstance(links, list):
         for l in links:
@@ -59,7 +57,6 @@ def extract_link(entry):
             if href and href.startswith("http"):
                 return href
 
-    # 3. بررسی id یا guid (چون در اکونومیست گاهی لینک در id قرار دارد)
     entry_id = entry.get("id", "")
     if entry_id and entry_id.startswith("http"):
         return entry_id
