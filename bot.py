@@ -22,12 +22,15 @@ def run_flask():
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 
-# ---- 3. منابع خبری (RSS Feeds) ----
+# ---- 3. منابع خبری جدید (RSS Feeds) ----
 NEWS_FEEDS = {
     "Quincy Institute": "https://responsiblestatecraft.org/feed/",
     "Carnegie Endowment": "https://carnegieendowment.org/rss/solr/?fa=all",
-    "Harvard Business Review": "https://feeds.hbr.org/harvardbusiness",
-    "The Economist": "https://www.economist.com/the-world-this-week/rss.xml"
+    "Harvard Business Review": "https://feeds.feedburner.com/harvardbusiness",
+    "The Economist (International)": "https://www.economist.com/international/rss.xml",
+    "The Economist (Business)": "https://www.economist.com/business/rss.xml",
+    "The Economist (Finance & Economics)": "https://www.economist.com/finance-and-economics/rss.xml",
+    "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss"
 }
 
 # حافظه موقت برای ذخیره ۲۰۰ خبر آخر جهت جلوگیری از تکرار
@@ -74,19 +77,15 @@ def send_telegram_message(text):
         print(f"خطا در ارسال به تلگرام: {e}")
         return False
 
-def init_first_run():
-    """در اولین اجرای ربات، تمام اخبار موجود را فقط ذخیره می‌کند بدون اینکه به کانال بفرستد"""
-    print("در حال همگام‌سازی اولیه و شناسایی اخبار موجود...")
-    for source_name, feed_url in NEWS_FEEDS.items():
-        try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:10]:
-                link = entry.get("link", "")
-                if link:
-                    SEEN_LINKS.add(link)
-        except Exception as e:
-            print(f"خطا در دریافت اولیه {source_name}: {e}")
-    print(f"همگام‌سازی تمام شد. تعداد {len(SEEN_LINKS)} خبر موجود شناسایی شد و به کانال فرستاده نخواهند شد.")
+def fetch_feed_custom(url):
+    """دریافت فید RSS با هدر مرورگر برای جلوگیری از مسدود شدن"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=15)
+        return feedparser.parse(response.content)
+    except Exception as e:
+        print(f"خطا در دریافت فید از {url}: {e}")
+        return feedparser.parse(url)
 
 def process_feeds():
     """بررسی اخبار جدید"""
@@ -94,10 +93,14 @@ def process_feeds():
 
     for source_name, feed_url in NEWS_FEEDS.items():
         try:
-            feed = feedparser.parse(feed_url)
+            feed = fetch_feed_custom(feed_url)
 
-            # بررسی از قدیمی به جدید
-            for entry in reversed(feed.entries[:5]):
+            if not feed.entries:
+                print(f"⚠️ منبع {source_name} ورودی جدیدی نداشت یا فید آن خالی است.")
+                continue
+
+            # بررسی ۲ خبر آخر از هر منبع
+            for entry in reversed(feed.entries[:2]):
                 link = entry.get("link", "")
                 title_en = entry.get("title", "").strip()
                 
@@ -108,7 +111,7 @@ def process_feeds():
                 summary_raw = entry.get("summary", "") or entry.get("description", "")
                 summary_en = clean_html(summary_raw)[:300]
 
-                print(f"📰 خبر جدید پیدا شد: {title_en[:30]}...")
+                print(f"📰 خبر جدید پیدا شد از [{source_name}]: {title_en[:30]}...")
 
                 # ترجمه
                 title_fa = translate_to_persian(title_en)
@@ -129,7 +132,6 @@ def process_feeds():
                     print(f"✅ خبر با موفقیت ارسال شد: {title_en[:30]}")
                     SEEN_LINKS.add(link)
                     
-                    # اگر حافظه پر شد، قدیمی‌ترها را پاک کن
                     if len(SEEN_LINKS) > MAX_MEMORY:
                         SEEN_LINKS.pop()
 
@@ -140,8 +142,6 @@ def process_feeds():
 
 def news_loop():
     """حلقه زمان‌بندی بررسی اخبار (هر ۱۵ دقیقه)"""
-#    init_first_run()
-    
     while True:
         try:
             process_feeds()
