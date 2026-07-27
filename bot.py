@@ -140,7 +140,7 @@ def process_feeds():
 
 def news_loop():
     """حلقه زمان‌بندی بررسی اخبار (هر ۱۵ دقیقه)"""
-    init_first_run()
+#    init_first_run()
     
     while True:
         try:
