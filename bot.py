@@ -24,16 +24,17 @@ CHAT_ID = os.getenv("CHAT_ID", "-1003721340249")
 
 # ---- 3. منابع خبری (RSS Feeds) ----
 NEWS_FEEDS = {
-    "Quincy Institute": "https://responsiblestatecraft.org/feed/",
-    "Carnegie Endowment": "https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en",
-    "Harvard Business Review": "https://feeds.feedburner.com/harvardbusiness",
-    "The Economist (International)": "https://www.economist.com/international/rss.xml",
-    "The Economist (Business)": "https://www.economist.com/business/rss.xml",
-    "The Economist (Finance & Economics)": "https://www.economist.com/finance-and-economics/rss.xml",
-    "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss"
+    "پژوهشکده کویینسی": "https://responsiblestatecraft.org/feed/",
+    "مؤسسه کارنگی": "https://news.google.com/rss/search?q=site:carnegieendowment.org&hl=en-US&gl=US&ceid=US:en",
+    "هاروارد بیزینس ریویو": "https://feeds.feedburner.com/harvardbusiness",
+    "اکونومیست (بین‌الملل)": "https://www.economist.com/international/rss.xml",
+    "اکونومیست (تجارت)": "https://www.economist.com/business/rss.xml",
+    "اکونومیست (اقتصاد و مالی)": "https://www.economist.com/finance-and-economics/rss.xml",
+    "بلومبرگ": "https://feeds.bloomberg.com/markets/news.rss",
+    "کانال ۱۳ اسرائیل (اخبار ایران)": "https://news.google.com/rss/search?q=site:13tv.co.il+Iran&hl=en-US&gl=US&ceid=US:en"
 }
 
-# حافظه موقت برای ذخیره ۲۰۰ خبر آخر جهت جلوگیری از تکرار
+# حافظه موقت برای ذخیره ۳۰۰ خبر آخر جهت جلوگیری از تکرار
 SEEN_LINKS = set()
 MAX_MEMORY = 300
 
@@ -111,7 +112,7 @@ def fetch_feed_custom(url):
         return feedparser.parse(url)
 
 def process_feeds(item_count=10):
-    """بررسی اخبار جدید (item_count مشخص می‌کند چه تعداد از آخرین اخبار چک شوند)"""
+    """بررسی اخبار جدید"""
     print(f"در حال بررسی منابع خبری برای {item_count} مقاله اخیر...")
 
     for source_name, feed_url in NEWS_FEEDS.items():
@@ -122,7 +123,7 @@ def process_feeds(item_count=10):
                 print(f"⚠️ منبع {source_name} ورودی جدیدی نداشت یا فید آن خالی است.")
                 continue
 
-            # بررسی ۱۰ خبر آخر از هر منبع (از قدیمی به جدید جهت حفظ ترتیب)
+            # بررسی اخبار از قدیمی به جدید
             for entry in reversed(feed.entries[:item_count]):
                 link = extract_link(entry)
                 title_en = entry.get("title", "").strip()
@@ -141,12 +142,13 @@ def process_feeds(item_count=10):
                 title_fa = translate_to_persian(title_en)
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
-                # ساخت قالب پیام (فقط فارسی + لینک)
+                # ساخت قالب پیام (نام منبع در انتهای پیام قرار گرفت)
                 caption = f"📌 <b>{title_fa}</b>\n\n"
                 
                 if summary_fa:
                     caption += f"📝 {summary_fa}\n\n"
                 
+                caption += f"🏛 <b>منبع:</b> {source_name}\n"
                 caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
 
                 # ارسال پیام
@@ -157,7 +159,6 @@ def process_feeds(item_count=10):
                     if len(SEEN_LINKS) > MAX_MEMORY:
                         SEEN_LINKS.pop()
 
-                    # وقفه کوتاه برای رعایت قوانین اسپم تلگرام
                     time.sleep(2)
 
         except Exception as e:
@@ -165,10 +166,10 @@ def process_feeds(item_count=10):
 
 def news_loop():
     """حلقه زمان‌بندی بررسی اخبار"""
-    # در اجرای اول: ۱۰ خبر اخیر هر منبع ارسال می‌شود
+    # در اولین اجرا ۱۰ خبر اخیر منبع جدید (و بقیه) بررسی و ارسال می‌شود
     process_feeds(item_count=10)
 
-    # در دوره‌های بعدی (هر ۱۵ دقیقه): فقط ۲ خبر اخیر بررسی می‌شود
+    # در دوره‌های بعدی هر ۱۵ دقیقه ۲ خبر اخیر چک می‌شود
     while True:
         print("انتظار برای بررسی بعدی (۱۵ دقیقه)...")
         time.sleep(900)
