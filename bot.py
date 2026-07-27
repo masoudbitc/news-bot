@@ -73,7 +73,7 @@ def translate_to_persian(text):
     if not text:
         return ""
     try:
-        clean_text = text[:3500]  # ترجمه تا ۳۵۰۰ کاراکتر
+        clean_text = text[:3500]  # ترجمه متون بلندتر تا ۳۵۰۰ کاراکتر
         translated = GoogleTranslator(source='auto', target='fa').translate(clean_text)
         return translated
     except Exception as e:
@@ -144,15 +144,11 @@ def process_feeds(item_count=3):
                 title_fa = translate_to_persian(title_en)
                 summary_fa = translate_to_persian(summary_en) if summary_en else ""
 
-                # ساخت قالب پیام
+                # ساخت قالب ساده و شکیل پیام
                 caption = f"📌 <b>{title_fa}</b>\n\n"
                 
                 if summary_fa:
-                    if source_name == "مؤسسه کارنگی":
-                        # استفاده از فرمت اسپویلر استاندارد تلگرام (کلیک برای نمایش)
-                        caption += f"📝 <b>متن کامل مقاله (روی متن بزنید تا باز شود):</b>\n<tg-spoiler>{summary_fa}</tg-spoiler>\n\n"
-                    else:
-                        caption += f"📝 {summary_fa}\n\n"
+                    caption += f"📝 {summary_fa}\n\n"
                 
                 caption += f"🏛 <b>منبع:</b> {source_name}\n"
                 caption += f"🔗 <a href='{link}'>مطالعه مقاله کامل</a>"
