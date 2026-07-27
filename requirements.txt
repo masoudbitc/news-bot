@@ -1,4 +1,5 @@
+flask
 requests
 feedparser
 deep-translator
-flask
+beautifulsoup4
